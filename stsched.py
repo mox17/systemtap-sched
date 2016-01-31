@@ -42,8 +42,8 @@ class thread :
             self.buckets[self.bucket] += part1
             self.sliceStart += part1
             slice += part1
-        #if bucket-self.bucket > 1:
-            #print(bucket, self.bucket, time, btime)
+        if bucket-self.bucket > 1:
+            print("Bucket skip", bucket, self.bucket, time, btime, file=sys.stderr)
             #assert(bucket-self.bucket <= 1) # assume scheduling happens more than once per bucketTime
             
         self.buckets[bucket] += time - self.sliceStart
@@ -62,25 +62,22 @@ class kernel :
         self.threads = {}     # Map tid -> thread
         self.tidpid = {}      # map tid -> pid
         self.pidtime = {}     # map pid -> cpu time
-        self.bucketCount = bucketCount
-        self.bucketTime = bucketTime
-        self.lastThread = None
-        self.firstTime = None # Timestamp of 1st trace
+        self.bucketCount = bucketCount   # Max number of buckets to process
+        self.bucketTime = bucketTime     # Time interval per bucket in ns
+        self.lastThread = None           # Previously executine thread (object)
         self.processCount = processCount # How many processes to graph (with rest summarized under misc)
         return
 
     def handleScheduling(self, pid, tid, time, btime, bucket):
         if self.lastThread:
-            if self.firstTime == None:
-                self.firstTime = time
             self.lastThread.scheduleOut(time, btime, bucket)
         return
 
     def processStart(self, pid, tid, time, btime, bucket, name):
         if not pid in self.processes:
-            self.processes[pid] = [tid]
-            self.pidtime[pid] = 0
-            #print(time, pid, tid, name)
+            # A new process was started
+            self.processes[pid] = [tid] # So far it has its own thread
+            self.pidtime[pid] = 0       # And no CPU time spent yet
         else:
             if not tid in self.processes[pid]:
                 self.processes[pid].append(tid)
@@ -106,48 +103,31 @@ class kernel :
         
     def schedule(self, tid, time, btime, bucket):
         slice = self.lastThread.scheduleOut(time, btime, bucket)
-        self.pidTime(tid, slice)
+        self.pidTime(self.lastThread.tid, slice) # Accumulate time for process which just ran
         self.lastThread = self.threads[tid]
         self.lastThread.scheduleIn(time, bucket)
         return
 
-    def printProcesses(self, lastBucket, f = sys.stdout):
+    def printProcesses(self, lastBucket, f):
         k = self.processes.keys()
         for x in k:
-            print('{:4d} {:12.9f} "{:s}"'.format(x, self.pidtime[x]/self.bucketTime, self.threadName[x]), file=f)
+            print('{:4d} {:12.9f} "{:s}"'.format(x, self.pidtime[x]/1E9, self.threadName[x]), file=f)
         return
     
-    def printTable(self, lastBucket, f = sys.stdout):
-        # Create a list of processes ordred in descending orderby total cpu time
-        k = self.processes.keys()
-        pl = []
-        for x in k:
-            pl.append([x,self.pidtime[x],self.threadName[x]])
-        p2 = sorted(pl, key=lambda rec: rec[1], reverse=True)
-        # For each process print a list with cpu time used in each bucket
-        for p in p2:
-            timing = [0 for i in range(lastBucket+1)]
-            threadList = self.processes[p[0]]
-            for t in threadList:
-                thr = self.threads[t]
-                for bucket in range(lastBucket+1):
-                    timing[bucket] += thr.buckets[bucket]/self.bucketTime
-            # Output timing for process
-            print('"{0}"'.format(p[2]),timing)
-        return
-    
-    def printTable2(self, lastBucket, f=sys.stdout):
+    def printTable(self, lastBucket, f=sys.stdout):
         maxProcessCount = self.processCount
         # Create a list of processes ordred in descending orderby total cpu time
         k = self.processes.keys()
         pl = []
         for x in k:
-            pl.append([x,self.pidtime[x],self.threadName[x]])
+            if x != 0:
+                # Skip tid 0 (swapper) which is idle time
+                pl.append([x,self.pidtime[x],self.threadName[x]])
         p2 = sorted(pl, key=lambda rec: rec[1], reverse=True)
 
-        # First row is "Time","Process0","Process1"..."Process99","Misc"
+        # First row is "Time(s)","Process0","Process1"..."Process99","Misc"
         processCount = len(p2)
-        titleRow = ['"uptime (seconds)"']
+        titleRow = ['"Time(s)"']
         for p in p2[:min(maxProcessCount, processCount)]:
             titleRow.append('"{0}"'.format(self.threadName[p[0]]))
         if processCount > maxProcessCount:
@@ -158,14 +138,13 @@ class kernel :
 
         # Create column of start times
         timeColumn = [0 for i in range(lastBucket+1)]
-        timeColumn[0] = self.firstTime - (self.firstTime % self.bucketTime)
         for bucket in range(lastBucket):
-            timeColumn[bucket+1] = timeColumn[bucket] + self.bucketTime
+            timeColumn[bucket] = bucket * self.bucketTime
         dataRow[0] = timeColumn
         
         # Create a column of data for each of the maxProcessCount most active processes
         idx = 1
-        for p in p2[:min(processCount,maxProcessCount)]:
+        for p in p2[:min(processCount, maxProcessCount)]:
             timing = [0 for i in range(lastBucket+1)]
             threadList = self.processes[p[0]]
             for t in threadList:
@@ -197,9 +176,35 @@ class kernel :
                 print("{:11.9f},".format(dataRow[x][i]),end='',file=f)
             print(file=f)
         return
-        
+
+    def mergeProcessesWithSameNames(self):
+        nameDict = {}       # Map name to process pid
+        processKeys = self.processes.keys() # Get list of pid's
+        removeList = []
+        for p in processKeys:
+            processName = self.threadName[p]
+            if not processName in nameDict:
+                nameDict[processName] = p
+            else:
+                # Name already seen, move list of tid's to earlier found thread
+                pid = nameDict[processName]
+                self.processes[pid] = self.processes[pid] + self.processes[p]
+                # Handle accumulated time
+                self.pidtime[pid] += self.pidtime[p]
+                # Handle mapping from tid back to pid
+                for t in self.processes[p]:     
+                    self.tidpid[t] = pid
+                #del self.processes[p]
+                removeList.append(p)
+                #print("Merging process {0} {1}".format(p, processName),file=sys.stderr)
+        for p in removeList:
+            del self.processes[p]
+        return
+
+# Regular expressions for analyzing trek files    
 #                               pid   tid   name
 processPattern = re.compile(r'@(\d+):(\d+)>(.*)')
+#                              core  tid
 schedPattern   = re.compile(r'#(\d)>(\d+)')
 
 def main():
@@ -208,40 +213,55 @@ def main():
     parser.add_argument("--bucket", type=int, help="Length of sampling bucket in ns", default=100000000)
     parser.add_argument("--duration", type=float, help="Skip data beyond 'duration' seconds")
     parser.add_argument("--pcount", type=int, help="Number of ranked process to display", default=100)
-
+    parser.add_argument("--merge", help="Merge processes with same name", action='store_true')
+    parser.add_argument("--summary", help="File with summary of CPU seconds per process")
+    parser.add_argument("--output", help="File with CPU distribution over time")
     args = parser.parse_args()
     
     bucketTime = float(args.bucket) #100000000.0 # 10^8 = 0.1s
     if args.duration:
         bucketCount = int((args.duration * 1E9 / bucketTime)+1)
-        durationNs = args.duration * 1E9 
+        durationNs = (args.duration * 1E9) + bucketTime
     else:
-        durationNs = 0
         bucketCount = 20000 # some arbitrary  number
+        durationNs = 0      # No cutoff, process to end of file
     kern = kernel(bucketCount, bucketTime, args.pcount)
     
     with open(args.trek) as f:
         for line in f:
             bracket = line.find(']')
-            time = int(line[1:bracket-2])
+            time = int(line[1:bracket-2]) # timestamp in ns
             if durationNs and (time > durationNs):
                 break
-            #tenths = int(line[1:bracket-10])
-            bucket = int(time / args.bucket)
+            # Calculate which discrete time interval we are in now
+            bucketIdx = int(time / bucketTime)
+            # Time for beginning of this interval
             btime = time - (time % bucketTime)
             res = processPattern.search(line)
             if res != None:
                 pid = int(res.group(1))
                 tid = int(res.group(2))
                 name = res.group(3)
-                kern.processStart(pid, tid, time, btime, bucket, name)
+                kern.processStart(pid, tid, time, btime, bucketIdx, name)
             else:
                 res = schedPattern.search(line)
                 if res != None:
                     tid = int(res.group(2))
-                    kern.schedule(tid, time, btime, bucket)
-    #kern.printProcesses()
-    kern.printTable2(bucket)
+                    kern.schedule(tid, time, btime, bucketIdx)
+    # Log file processed, now process data and generate output
+    if args.merge:
+        kern.mergeProcessesWithSameNames()
+    if args.summary:
+        print("Writing summary to '{0}".format(args.summary),file=sys.stderr)
+        sum = open(args.summary,"wt")
+        kern.printProcesses(bucketIdx, sum)
+        sum.close()
+    if args.output:
+        output = open(args.output,"wt")
+        kern.printTable2(bucketIdx,output)
+        output.close()
+    else:
+        kern.printTable(bucketIdx)
     return
 
 if __name__ == '__main__':
