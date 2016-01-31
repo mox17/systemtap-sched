@@ -56,7 +56,8 @@ class thread :
         return
 
 class kernel :
-    def __init__(self, bucketCount, bucketTime, processCount):
+    def __init__(self, cores, bucketCount, bucketTime, processCount):
+        self.cores = cores    #
         self.processes = {}   # Map pid -> [tid]+
         self.threadName = {}  # Map tid -> name
         self.threads = {}     # Map tid -> thread
@@ -64,48 +65,50 @@ class kernel :
         self.pidtime = {}     # map pid -> cpu time
         self.bucketCount = bucketCount   # Max number of buckets to process
         self.bucketTime = bucketTime     # Time interval per bucket in ns
-        self.lastThread = None           # Previously executine thread (object)
+        self.lastThread = [None for i in range(self.cores)] # Previously executing thread in relevant core(object)
         self.processCount = processCount # How many processes to graph (with rest summarized under misc)
         return
 
-    def handleScheduling(self, pid, tid, time, btime, bucket):
-        if self.lastThread:
-            self.lastThread.scheduleOut(time, btime, bucket)
+    def handleScheduling(self, core, pid, tid, time, btime, bucket):
+        if self.lastThread[core]:
+            self.lastThread[core].scheduleOut(time, btime, bucket)
         return
 
     def processStart(self, pid, tid, time, btime, bucket, name):
         if not pid in self.processes:
-            # A new process was started
+            # A new process was created
             self.processes[pid] = [tid] # So far it has its own thread
             self.pidtime[pid] = 0       # And no CPU time spent yet
         else:
+            # A thread was added to an existing process
             if not tid in self.processes[pid]:
                 self.processes[pid].append(tid)
-                #print(time, pid, tid, self.processes[pid])
         if not tid in self.tidpid:
+            # Mapping frok threads to processes
             self.tidpid[tid] = pid
         if not tid in self.threads:
             thr = thread(pid,tid,time,name,self.bucketCount)
             self.threads[tid] = thr
-            self.threadName[tid] = name
         else:
             thr = self.threads[tid]
         if len(name) > 0:
             self.threadName[tid] = name
-        self.handleScheduling(pid, tid, time, btime, bucket)
-        thr.scheduleIn(time, bucket)
-        self.lastThread = thr
+        # No scheduling yet - we don't know which core
+        #self.handleScheduling(pid, tid, time, btime, bucket)
+        #thr.scheduleIn(time, bucket)
+        #self.lastThread = thr
         return
     
     def pidTime(self, tid, slice):
         self.pidtime[self.tidpid[tid]] += slice
         return
         
-    def schedule(self, tid, time, btime, bucket):
-        slice = self.lastThread.scheduleOut(time, btime, bucket)
-        self.pidTime(self.lastThread.tid, slice) # Accumulate time for process which just ran
-        self.lastThread = self.threads[tid]
-        self.lastThread.scheduleIn(time, bucket)
+    def schedule(self, core, tid, time, btime, bucket):
+        if self.lastThread[core] != None:
+            slice = self.lastThread[core].scheduleOut(time, btime, bucket)
+            self.pidTime(self.lastThread[core].tid, slice) # Accumulate time for process which just ran
+        self.lastThread[core] = self.threads[tid]
+        self.lastThread[core].scheduleIn(time, bucket)
         return
 
     def printProcesses(self, lastBucket, f):
@@ -218,6 +221,7 @@ def main():
     parser.add_argument("--merge", help="Merge processes with same name", action='store_true')
     parser.add_argument("--summary", help="File with summary of CPU seconds per process")
     parser.add_argument("--output", help="File with CPU distribution over time")
+    parser.add_argument("--cores", type=int, help="Number of processor cores", default=8)
     args = parser.parse_args()
     
     bucketTime = float(args.bucket) #100000000.0 # 10^8 = 0.1s
@@ -227,7 +231,7 @@ def main():
     else:
         bucketCount = 20000 # some arbitrary  number
         durationNs = 0      # No cutoff, process to end of file
-    kern = kernel(bucketCount, bucketTime, args.pcount)
+    kern = kernel(args.cores, bucketCount, bucketTime, args.pcount)
     
     with open(args.trek) as f:
         for line in f:
@@ -248,8 +252,9 @@ def main():
             else:
                 res = schedPattern.search(line)
                 if res != None:
+                    core = int(res.group(1))
                     tid = int(res.group(2))
-                    kern.schedule(tid, time, btime, bucketIdx)
+                    kern.schedule(core, tid, time, btime, bucketIdx)
     # Log file processed, now process data and generate output
     if args.merge:
         kern.mergeProcessesWithSameNames()
@@ -260,7 +265,7 @@ def main():
         sum.close()
     if args.output:
         output = open(args.output,"wt")
-        kern.printTable2(bucketIdx,output)
+        kern.printTable(bucketIdx,output)
         output.close()
     else:
         kern.printTable(bucketIdx)

@@ -1,0 +1,9 @@
+Program usage:
+
+A file with scheduling traces is needed.
+
+Run like this
+
+./stsched.py --bucket=100000000 --duration=60 --merge --summary=sum.txt --output=table.csv 1star.trek
+
+The sample buckets are 100ms wide, stop after 60 seconds (as indicated by timestamps in file), merge processes with same names.
