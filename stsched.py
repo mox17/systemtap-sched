@@ -165,6 +165,7 @@ class kernel :
                     for bucket in range(lastBucket+1):
                         summarize[bucket] += thr.buckets[bucket]/self.bucketTime
             dataRow[idx] = summarize
+            idx += 1
             
         # Time to output data
         for t in titleRow:
@@ -172,7 +173,8 @@ class kernel :
         print(file=f)
         for i in range(lastBucket):
             print("{:11.9f},".format(dataRow[0][i]/1.0E9),end='',file=f)
-            for x in range(1,idx+1):
+            for x in range(1,idx):
+                #print(x,idx,i,maxProcessCount,processCount,file=sys.stderr)
                 print("{:11.9f},".format(dataRow[x][i]),end='',file=f)
             print(file=f)
         return
@@ -212,7 +214,7 @@ def main():
     parser.add_argument("trek", help="systemtap/taptrek logfile")
     parser.add_argument("--bucket", type=int, help="Length of sampling bucket in ns", default=100000000)
     parser.add_argument("--duration", type=float, help="Skip data beyond 'duration' seconds")
-    parser.add_argument("--pcount", type=int, help="Number of ranked process to display", default=100)
+    parser.add_argument("--pcount", type=int, help="Number of ranked processes to display", default=100)
     parser.add_argument("--merge", help="Merge processes with same name", action='store_true')
     parser.add_argument("--summary", help="File with summary of CPU seconds per process")
     parser.add_argument("--output", help="File with CPU distribution over time")
