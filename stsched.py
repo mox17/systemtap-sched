@@ -113,8 +113,9 @@ class kernel :
 
     def printProcesses(self, lastBucket, f):
         k = self.processes.keys()
+        print("name,cpu,pid",file=f)
         for x in k:
-            print('{:4d} {:12.9f} "{:s}"'.format(x, self.pidtime[x]/1E9, self.threadName[x]), file=f)
+            print('"{2:s}",{1:12.9f},{0:5d}'.format(x, self.pidtime[x]/1E9, self.threadName[x]), file=f)
         return
     
     def printTable(self, lastBucket, f=sys.stdout):
@@ -259,11 +260,12 @@ def main():
     if args.merge:
         kern.mergeProcessesWithSameNames()
     if args.summary:
-        print("Writing summary to '{0}".format(args.summary),file=sys.stderr)
+        print("Writing summary to '{0}'".format(args.summary),file=sys.stderr)
         sum = open(args.summary,"wt")
         kern.printProcesses(bucketIdx, sum)
         sum.close()
     if args.output:
+        print("Writing output to '{0}'".format(args.output),file=sys.stderr)
         output = open(args.output,"wt")
         kern.printTable(bucketIdx,output)
         output.close()
