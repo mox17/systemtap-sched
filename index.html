@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+
+body {
+  font: 10px sans-serif;
+}
+
+.axis path,
+.axis line {
+  fill: none;
+  stroke: #000;
+  shape-rendering: crispEdges;
+}
+
+.browser text {
+  text-anchor: end;
+}
+
+</style>
+<body>
+<script src="./d3/d3.v3.min.js"></script>
+<script src="./d3/d3.tip.v0.6.3.js"></script>
+
+<script>
+
+var margin = {top: 20, right: 20, bottom: 30, left: 50},
+    width = 1960 - margin.left - margin.right,
+    height = 1400 - margin.top - margin.bottom;
+
+var coordinates = [0, 0];
+
+var parseDate = d3.time.format("%y-%b-%d").parse,
+    formatPercent = d3.format(".0%");
+
+var x = d3.scale.linear()
+    .range([0, width]);
+
+var y = d3.scale.linear()
+    .range([height, 0]);
+
+var color = d3.scale.category20();
+
+var xAxis = d3.svg.axis()
+    .scale(x)
+    .orient("bottom");
+
+var yAxis = d3.svg.axis()
+    .scale(y)
+    .orient("left")
+    //.tickFormat(formatPercent);
+
+    // Define 'div' for tooltips
+var div = d3.select("body")
+	.append("div")  // declare the tooltip div 
+	.attr("class", "tooltip")              // apply the 'tooltip' class
+	.style("opacity", 0);                  // set the opacity to nil
+
+var area = d3.svg.area()
+    .x(function(d)  { return x(d.time); })
+    .y0(function(d) { return y(d.y0); })
+    .y1(function(d) { return y(d.y0 + d.y); });
+
+var stack = d3.layout.stack()
+    .values(function(d) { return d.values; });
+
+var svg = d3.select("body").append("svg")
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", height + margin.top + margin.bottom)
+  .append("g")
+    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+d3.csv("http://localhost:1080/table.csv", function(error, data) {
+  if (error) throw error;
+
+  color.domain(d3.keys(data[0]).filter(function(key) { return key !== "time"; }));
+  //console.log(data[0])
+
+  data.forEach(function(d) {
+    //console.log(+d.Time)
+    d.time = +d.time;
+    d.x = d.time
+  });
+
+  var browsers = stack(color.domain().map(function(name) {
+    return {
+      name: name,
+      values: data.map(function(d) {
+        //console.log(d.time, name, d[name])
+        return {time: d.time, y: d[name] /1.0};
+      })
+    };
+  }));
+
+  console.log(d3.extent(data, function(d) { return d.time; }))
+//  x.domain(d3.extent(data, function(d) { return d.time; }));
+  x.domain(["0","60.0"]);
+
+  var browser = svg.selectAll(".browser")
+      .data(browsers)
+      .enter().append("g")
+      .attr("class", "browser");
+
+  browser.append("path")
+        .attr("class", "area")
+        .attr("d", function(d) { return area(d.values); })
+        .style("fill", function(d) { return color(d.name); })
+        .on("mouseover", function(d) {
+            coordinates = d3.mouse(this);
+
+            //console.log(d)
+            div.transition()
+              .duration(500)	
+              .style("opacity", 0);
+            div.transition()
+              .duration(200)	
+              .style("opacity", .9);	
+            div.html(d.name +
+                    "<br/>")	 
+                    .style("left", (coordinates[0]) + "px")			 
+                    .style("top", (coordinates[1] - 28) + "px");
+        });
+
+/*
+  browser.append("text")
+      .datum(function(d) { return {name: d.name, value: d.values[d.values.length - 1]}; })
+      .attr("transform", function(d) { return "translate(" + x(d.value.time) + "," + y(d.value.y0 + d.value.y / 2) + ")"; })
+      .attr("x", -6)
+      .attr("dy", ".35em")
+      .text(function(d) { return d.name; });
+*/
+  svg.append("g")
+      .attr("class", "x axis")
+      .attr("transform", "translate(0," + height + ")")
+      .call(xAxis);
+
+  svg.append("g")
+      .attr("class", "y axis")
+      .call(yAxis);
+});
+
+</script>
