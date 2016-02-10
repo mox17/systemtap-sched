@@ -70,7 +70,7 @@ var svg = d3.select("body").append("svg")
   .append("g")
     .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
 
-d3.csv("http://localhost:1080/table.csv", function(error, data) {
+d3.csv("http://localhost:8000/table.csv", function(error, data) {
   if (error) throw error;
 
   color.domain(d3.keys(data[0]).filter(function(key) { return key !== "time"; }));
@@ -107,8 +107,6 @@ d3.csv("http://localhost:1080/table.csv", function(error, data) {
         .style("fill", function(d) { return color(d.name); })
         .on("mouseover", function(d) {
             coordinates = d3.mouse(this);
-
-            //console.log(d)
             div.transition()
               .duration(500)	
               .style("opacity", 0);
@@ -116,9 +114,9 @@ d3.csv("http://localhost:1080/table.csv", function(error, data) {
               .duration(200)	
               .style("opacity", .9);	
             div.html(d.name +
-                    "<br/>")	 
-                    .style("left", (coordinates[0]) + "px")			 
-                    .style("top", (coordinates[1] - 28) + "px");
+                    "<br/>")
+                    .style("left", coordinates[0] + "px")			 
+                    .style("top",  coordinates[1] + "px");
         });
 
 /*
